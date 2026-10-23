@@ -40,13 +40,20 @@ def resolve_company(term: str) -> dict[str, Any]:
 @mcp.tool()
 def research_company(symbol: str, question: str = "Summarize the strongest supported case and countercase.") -> dict[str, Any]:
     """Research one selected company using its bounded dated source packet and return cited evidence."""
-    return {"research_company" : payload(app_service.research(ResearchRequest(symbol=symbol, question=question)))}
+    return payload(app_service.research(ResearchRequest(symbol=symbol, question=question)))
 
 
 @mcp.tool()
 def get_portfolio_exposure(symbol: str | None = None, sector: str | None = None) -> dict[str, Any]:
-    """Read the clearly labeled sample portfolio and calculate descriptive invested-holdings exposure."""
-    return {"get_portfolio_exposure" : payload(app_service.get_portfolio_exposure(symbol=symbol, sector=sector))}
+    """Read the clearly labeled sample portfolio and calculate descriptive invested-holdings exposure.
+
+    Currency fields ending in `_minor` (such as `amount_minor`, `market_value_minor`, and
+    `invested_holdings_value_minor`) are integer paise (100 paise = ₹1). Companion fields
+    ending in `_inr` (such as `amount_inr` and `invested_holdings_value_inr`) contain the
+    same value pre-formatted as a rupee string; use those when quoting amounts to the user.
+    The `summary` field contains a pre-formatted sentence with the correct total in Rupees.
+    """
+    return payload(app_service.get_portfolio_exposure(symbol=symbol, sector=sector))
 
 
 @mcp.tool()
@@ -67,25 +74,25 @@ def preview_paper_order(
         limit_price=limit_price,
         account_alias=account_alias,
     )
-    return {"preview_paper_order" : payload(app_service.store_preview(app_service.preview_order(request)))}
+    return payload(app_service.store_preview(app_service.preview_order(request)))
 
 
 @mcp.tool()
 def confirm_paper_order(preview_id: str, confirmation_token: str, idempotency_key: str) -> dict[str, Any]:
     """Confirm the exact order preview in the local paper simulator; no real brokerage call is made."""
-    return {"confirm_paper_order" : payload(app_service.confirm_order(preview_id, True, confirmation_token, idempotency_key))}
+    return payload(app_service.confirm_order(preview_id, True, confirmation_token, idempotency_key))
 
 
 @mcp.tool()
 def get_paper_order_status(order_id: str, refresh: bool = False) -> dict[str, Any]:
     """Read the latest known local paper-order status without submitting or changing the order."""
-    return {"get_paper_order_status" : payload(app_service.order_status(order_id, refresh))}
+    return payload(app_service.order_status(order_id, refresh))
 
 
 @mcp.tool()
 def save_research_dossier(run_id: str, title: str, notes: str = "") -> dict[str, Any]:
     """Save an owner-scoped, versioned dossier from a completed research run."""
-    return {"save_research_dossier" : payload(app_service.save_dossier(DossierSaveRequest(run_id=run_id, title=title, notes=notes)))}
+    return payload(app_service.save_dossier(DossierSaveRequest(run_id=run_id, title=title, notes=notes)))
 
 
 @mcp.tool()
@@ -97,31 +104,31 @@ def compare_research(run_id: str, dossier_id: str) -> dict[str, Any]:
 @mcp.tool()
 def screen_securities(criteria: list[dict[str, Any]], universe_id: str = "demo-nse-equities-v1") -> dict[str, Any]:
     """Apply explicit deterministic criteria to the small fictional local security universe."""
-    return {"screen_securities" : payload(app_service.screen(ScreenRequest(universe_id=universe_id, criteria=criteria)))}
+    return payload(app_service.screen(ScreenRequest(universe_id=universe_id, criteria=criteria)))
 
 
 @mcp.tool()
 def get_portfolio_activities() -> list[dict[str, Any]]:
     """Read synthetic sample account activities with their incomplete-data markers."""
-    return [{"get_portfolio_activities" : payload(app_service.account_activities())}]
+    return payload(app_service.account_activities())
 
 
 @mcp.tool()
 def get_portfolio_performance(period: str = "all") -> dict[str, Any]:
     """Return performance availability and missing inputs; never calculate from incomplete history."""
-    return {"get_portfolio_performance" : payload(app_service.performance(period))}
+    return payload(app_service.performance(period))
 
 
 @mcp.tool()
 def get_broker_research(symbol: str) -> dict[str, Any]:
     """Check whether separately attributed broker research is available; no provider is configured in demo mode."""
-    return {"get_broker_research" : payload(app_service.broker_research(symbol))}
+    return payload(app_service.broker_research(symbol))
 
 
 @mcp.tool()
 def add_to_watchlist(symbol: str, dossier_id: str | None = None) -> dict[str, Any]:
     """Add a demo-universe security to the local watchlist."""
-    return {"add_to_watchlist" : payload(app_service.add_watchlist_entry(symbol, dossier_id))}
+    return payload(app_service.add_watchlist_entry(symbol, dossier_id))
 
 
 @mcp.tool()
@@ -141,19 +148,19 @@ def configure_event_alert(
         description=description,
         source_types=source_types or default_sources,
     )
-    return {"configure_event_alert" : payload(app_service.configure_alert(request))}
+    return payload(app_service.configure_alert(request))
 
 
 @mcp.tool()
 def scan_watchlist_events() -> list[dict[str, Any]]:
     """Scan the synthetic event fixture and deduplicate matching in-app alerts."""
-    return [{"scan_watchlist_events" : payload(app_service.scan_alerts())}]
+    return payload(app_service.scan_alerts())
 
 
 @mcp.tool()
 def review_event_alerts() -> list[dict[str, Any]]:
     """List owner-scoped event alerts and their read/dismiss state."""
-    return [{"review_evet_alerts" : payload(app_service.list_alerts())}]
+    return payload(app_service.list_alerts())
 
 
 @mcp.tool()
@@ -171,22 +178,22 @@ def create_order_change_preview(
         if action == "modify"
         else None,
     )
-    return {"create_order_change_preview" : payload(change)}
+    return payload(change)
 
 
 @mcp.tool()
 def confirm_paper_order_change(change_id: str, confirmation_token: str, idempotency_key: str) -> dict[str, Any]:
     """Confirm the exact unexpired local change preview and update only the local simulator."""
-    return {"conform_paper_order_exchange" : payload(app_service.confirm_order_change(change_id, True, confirmation_token, idempotency_key))}
+    return payload(app_service.confirm_order_change(change_id, True, confirmation_token, idempotency_key))
 
 
 @mcp.tool()
 def list_demo_accounts() -> list[dict[str, Any]]:
     """List simulated sample accounts; this tool does not link a real brokerage account."""
-    return [{"list_demo_accounts" : payload(app_service.list_accounts())}]
+    return payload(app_service.list_accounts())
 
 
 @mcp.tool()
 def revoke_demo_account(account_ref: str) -> dict[str, Any]:
     """Revoke a simulated sample account from this local demo session."""
-    return {"revoke_demo_account" : payload(app_service.revoke_account(account_ref))}
+    return payload(app_service.revoke_account(account_ref))
