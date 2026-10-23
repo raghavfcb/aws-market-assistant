@@ -3,10 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, cast
 from uuid import uuid4
 
 from market_partner.adapters.fixtures import FixtureEvidenceAdapter, FixturePortfolioAdapter
@@ -50,7 +50,7 @@ from market_partner.workflows.research import (
 
 
 def now_utc() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def iso(value: datetime | None = None) -> str:
@@ -94,7 +94,7 @@ class MarketPartnerApplication:
     def _read_fixture(self, name: str) -> dict[str, Any]:
         path = self.settings.fixtures_path / name
         with path.open(encoding="utf-8") as handle:
-            return json.load(handle)
+            return cast(dict[str, Any], json.load(handle))
 
     def _ensure_seed_accounts(self) -> None:
         existing = {account["account_ref"] for account in self.repository.list("account", self.owner_id)}
@@ -127,7 +127,7 @@ class MarketPartnerApplication:
 
     @property
     def instruments(self) -> list[dict[str, Any]]:
-        return self.instrument_fixture["instruments"]
+        return cast(list[dict[str, Any]], self.instrument_fixture["instruments"])
 
     def resolve_instrument(self, term: str) -> dict[str, Any]:
         normalized = term.strip().upper()

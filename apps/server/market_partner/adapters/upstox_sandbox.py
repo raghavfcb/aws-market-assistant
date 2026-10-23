@@ -5,7 +5,6 @@ from urllib.parse import urlparse
 
 import httpx
 from pydantic import SecretStr
-
 from market_partner.errors import DomainError
 from market_partner.models import OrderPreview
 

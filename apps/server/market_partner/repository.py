@@ -4,7 +4,7 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Generator
 
 from pydantic import BaseModel
 
@@ -164,7 +164,7 @@ class Repository:
             )
 
     @contextmanager
-    def transaction(self) -> Iterator[sqlite3.Connection]:
+    def transaction(self) -> Generator[sqlite3.Connection]:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")

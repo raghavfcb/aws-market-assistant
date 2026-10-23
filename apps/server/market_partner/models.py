@@ -10,10 +10,18 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, PositiveInt, field_v
 DataMode = Literal["fixture", "authorized_provider", "sandbox"]
 ResultState = Literal["complete", "partial", "stale", "unavailable"]
 OrderSide = Literal["BUY", "SELL"]
+AlertEventClass = Literal[
+    "operating_update",
+    "financial_result",
+    "regulatory_filing",
+    "management_change",
+    "corporate_action",
+]
+AlertSourceType = Literal["issuer", "exchange", "news", "demonstration_fixture"]
 
 
 class APIModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, protected_namespaces=())
 
 
 class SafeError(APIModel):
@@ -280,9 +288,9 @@ class Alert(APIModel):
 class AlertRuleRequest(APIModel):
     instrument_id: str
     baseline_dossier_id: str | None = None
-    event_classes: list[Literal["operating_update", "financial_result", "regulatory_filing", "management_change", "corporate_action"]] = Field(min_length=1, max_length=10)
+    event_classes: list[AlertEventClass] = Field(min_length=1, max_length=10)
     threshold: int = Field(default=50, ge=1, le=100)
-    source_types: list[Literal["issuer", "exchange", "news", "demonstration_fixture"]] = Field(default_factory=lambda: ["issuer", "exchange"])
+    source_types: list[AlertSourceType] = Field(default_factory=lambda: ["issuer", "exchange"])
     schedule: str = "manual"
     description: str = Field(min_length=1, max_length=240)
 
@@ -298,7 +306,7 @@ class OrderPreviewRequest(APIModel):
     exchange: Literal["NSE", "BSE"]
     side: OrderSide
     quantity: PositiveInt
-    limit_price: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    limit_price: Decimal = Field(gt= Decimal('0.0'), max_digits=14, decimal_places=2)
     account_alias: str = Field(min_length=1, max_length=60)
 
     @field_validator("limit_price")
@@ -359,7 +367,7 @@ class PaperOrder(APIModel):
 
 class OrderChangeRequest(APIModel):
     quantity: PositiveInt | None = None
-    limit_price: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
+    limit_price: Decimal | None = Field(default=None, gt= Decimal('0.0'), max_digits=14, decimal_places=2)
 
 
 class OrderChangePreview(APIModel):

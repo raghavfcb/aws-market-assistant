@@ -63,7 +63,7 @@ class FixtureEvidenceAdapter:
 class LocalPaperExecutionAdapter:
     mode = "local_paper"
 
-    def submit(self, preview, *, instrument_token: str | None = None) -> dict[str, Any]:
+    def submit(self, preview : Any, *, instrument_token: str | None = None) -> dict[str, Any]:
         return {
             "status": "ACCEPTED_SIMULATED",
             "provider_order_id": None,

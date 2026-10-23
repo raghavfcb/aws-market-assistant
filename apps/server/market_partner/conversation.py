@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 from uuid import uuid4
 
+from botocore.exceptions import BotoCoreError, ClientError
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -12,6 +14,8 @@ from market_partner.adapters.sarvam import SarvamAPIError, SarvamChatClient
 from market_partner.config import Settings
 from market_partner.errors import DomainError
 from market_partner.models import ChatMessage, ChatRequest, ChatResponse, ModelUsage
+
+logger = logging.getLogger(__name__)
 
 MODEL_SAFE_TOOL_NAMES = frozenset(
     {
@@ -94,8 +98,8 @@ class MCPConversationHost:
                     return {"error": message}
                 structured = getattr(result, "structuredContent", None)
                 if structured is not None:
-                    return structured
-                text_blocks = [item.text for item in result.content if getattr(item, "type", None) == "text"]
+                    return {"structured result" : structured}
+                text_blocks = [getattr(item, "text", "") for item in result.content if getattr(item, "type", None) == "text"]
                 if len(text_blocks) == 1:
                     return {"result": text_blocks[0]}
                 return {"result": text_blocks}
@@ -161,14 +165,19 @@ class MCPConversationHost:
 
         bedrock_ready = self.settings.providers_ready["bedrock"]
         if bedrock_ready:
-            reply, tool_calls, data = await self._bedrock_response(request, tools)
-            return ChatResponse(
-                reply=reply,
-                tool_calls=tool_calls,
-                data=data,
-                mode="bedrock",
-                correlation_id=correlation_id,
-            )
+            try:
+                reply, tool_calls, data = await self._bedrock_response(request, tools)
+            except (BotoCoreError, ClientError):
+                logger.exception("bedrock_failed; falling back to fixture router")
+                tool_calls = []
+            else:
+                return ChatResponse(
+                    reply=reply,
+                    tool_calls=tool_calls,
+                    data=data,
+                    mode="bedrock",
+                    correlation_id=correlation_id,
+                )
 
         name, arguments, reply = self._fixture_intent(request.message)
         if name:
@@ -286,7 +295,7 @@ class MCPConversationHost:
                 try:
                     arguments = json.loads(raw_arguments) if isinstance(raw_arguments, str) else raw_arguments
                 except json.JSONDecodeError:
-                    arguments = {}
+                    arguments: dict[str, Any] = {}
                 if not isinstance(arguments, dict):
                     arguments = {}
                 normalized_calls.append(

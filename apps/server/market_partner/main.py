@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
@@ -22,7 +23,7 @@ mcp_asgi_app = mcp.streamable_http_app()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     async with mcp.session_manager.run():
         yield
 
@@ -55,7 +56,9 @@ async def domain_error_handler(request: Request, error: DomainError) -> JSONResp
 
 
 @app.middleware("http")
-async def correlation_and_safe_logging(request: Request, call_next):
+async def correlation_and_safe_logging(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     correlation_id = request.headers.get("X-Correlation-ID") or f"req_{uuid4().hex}"
     request.state.correlation_id = correlation_id
     try:

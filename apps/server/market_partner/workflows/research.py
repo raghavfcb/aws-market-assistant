@@ -4,11 +4,13 @@ import hashlib
 import json
 import re
 from threading import Lock
-from datetime import UTC, datetime
-from typing import Any, Protocol, TypedDict
+from collections.abc import Callable
+from datetime import datetime, timezone
+from typing import Any, Protocol, TypedDict, cast
 from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from market_partner.adapters.sarvam import SarvamChatClient
 from market_partner.models import AgentAnalysis, EvidenceClaim, ModelUsage, ResearchRun, SourceRecord
@@ -50,7 +52,7 @@ class ResearchState(TypedDict, total=False):
 
 
 def _timestamp(value: datetime | None = None) -> datetime:
-    return value or datetime.now(UTC)
+    return value or datetime.now(timezone.utc)
 
 
 def _fixture_analysis(role: str, sources: list[SourceRecord]) -> dict[str, Any]:
@@ -90,7 +92,7 @@ def _fixture_analysis(role: str, sources: list[SourceRecord]) -> dict[str, Any]:
         questions = ["Can the company replace the delayed line or diversify its customer base?"]
     else:
         summary = "The evidence is a synthetic demonstration packet, not real issuer information."
-        counterpoints = []
+        counterpoints: list[str] = []
         questions = ["What verified primary-source documents should replace the demo packet?"]
     return {
         "role": role,
@@ -168,10 +170,10 @@ def _analyze_validated(
         return _normalize_analysis(retried_analysis, role, valid_excerpt_ids, source_texts)
 
 
-def build_research_graph():
+def build_research_graph() -> CompiledStateGraph[Any, Any, Any, Any]:
     """Build a bounded graph with parallel analysts and an independent bull/bear pass."""
 
-    def specialist(role: str):
+    def specialist(role: str) -> Callable[[ResearchState], dict[str, Any]]:
         def node(state: ResearchState) -> dict[str, Any]:
             return {
                 "result": _analyze_validated(
@@ -264,7 +266,7 @@ def build_research_graph():
             }
         }
 
-    graph = StateGraph(ResearchState)
+    graph = StateGraph(cast(type[Any], ResearchState))
     graph.add_node("business", business_node)
     graph.add_node("governance", governance_node)
     graph.add_node("bull", bull_node)
@@ -300,7 +302,7 @@ def create_research_run(
     sources: list[SourceRecord],
     model: ResearchModel | None = None,
 ) -> ResearchRun:
-    started = datetime.now(UTC)
+    started = datetime.now(timezone.utc)
     run_id = f"run_{uuid4().hex}"
     output = build_research_graph().invoke(
         {
@@ -334,7 +336,7 @@ def create_research_run(
         analyses=[AgentAnalysis.model_validate(item) for item in output["result"]["analyses"]],
         workflow_version="research-graph-v1",
         started_at=started,
-        completed_at=datetime.now(UTC),
+        completed_at=datetime.now(timezone.utc),
         validation_status="valid" if valid else "rejected",
         data_mode="fixture" if fixture else "authorized_provider",
         model_usage=(
