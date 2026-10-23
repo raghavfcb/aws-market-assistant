@@ -12,8 +12,9 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from market_partner.adapters.sarvam import SarvamAPIError, SarvamChatClient
+from market_partner.adapters.bedrock_errors import classify_bedrock_error, classify_sarvam_error
 from market_partner.config import Settings
-from market_partner.errors import DomainError
+from market_partner.errors import ProviderError, providers_exhausted
 from market_partner.models import ChatMessage, ChatRequest, ChatResponse, ModelUsage
 
 logger = logging.getLogger(__name__)
@@ -175,7 +176,7 @@ class MCPConversationHost:
         has_total = any(word in lowered for word in ("total", "valued holdings", "overall", "all"))
         has_valuation = any(word in lowered for word in ("value", "valued", "worth", "valuation"))
 
-        return bool(has_scope and has_total and has_valuation)
+        return has_scope and has_total and has_valuation
 
     async def _handle_total_portfolio_valuation(self, correlation_id: str) -> ChatResponse:
         tool_calls: list[dict[str, Any]] = [{"name": "get_portfolio_exposure", "arguments": {}}]
@@ -184,10 +185,10 @@ class MCPConversationHost:
         except Exception as error:
             data = {"error": f"Tool execution failed: {error}"}
 
-        if self.settings.providers_ready["sarvam"] and self.settings.sarvam_api_key:
-            mode: Literal["fixture_router", "bedrock", "sarvam"] = "sarvam"
-        elif self.settings.providers_ready["bedrock"]:
-            mode = "bedrock"
+        if self.settings.providers_ready["bedrock"]:
+            mode: Literal["fixture_router", "bedrock", "sarvam"] = "bedrock"
+        elif self.settings.providers_ready["sarvam"] and self.settings.sarvam_api_key:
+            mode = "sarvam"
         else:
             mode = "fixture_router"
 
@@ -238,35 +239,24 @@ class MCPConversationHost:
 
         tool_calls: list[dict[str, Any]] = []
         tools = await self._discover()
-        if self.settings.providers_ready["sarvam"] and self.settings.sarvam_api_key:
-            try:
-                reply, tool_calls, data, usage = await self._sarvam_response(request, tools)
-            except SarvamAPIError as error:
-                raise DomainError("sarvam_unavailable", str(error), 502) from error
-            return ChatResponse(
-                reply=reply,
-                tool_calls=tool_calls,
-                data=data,
-                mode="sarvam",
-                model_usage=ModelUsage.model_validate(usage) if usage else None,
-                correlation_id=correlation_id,
-            )
 
-        bedrock_ready = self.settings.providers_ready["bedrock"]
-        if bedrock_ready:
+        # Bedrock is the primary provider; Sarvam is the backup when Bedrock fails.
+        attempts: list[tuple[str, Any]] = []
+        if self.settings.providers_ready["bedrock"]:
+            attempts.append(("bedrock", self._bedrock_attempt))
+        if self.settings.providers_ready["sarvam"] and self.settings.sarvam_api_key:
+            attempts.append(("sarvam", self._sarvam_attempt))
+
+        failures: list[ProviderError] = []
+        for provider, attempt in attempts:
             try:
-                reply, tool_calls, data = await self._bedrock_response(request, tools)
-            except (BotoCoreError, ClientError):
-                logger.exception("bedrock_failed; falling back to fixture router")
-                tool_calls = []
-            else:
-                return ChatResponse(
-                    reply=reply,
-                    tool_calls=tool_calls,
-                    data=data,
-                    mode="bedrock",
-                    correlation_id=correlation_id,
-                )
+                return await attempt(request, tools, correlation_id)
+            except ProviderError as error:
+                failures.append(error)
+                log = logger.warning if error.transient else logger.error
+                log("chat_provider_failed provider=%s transient=%s reason=%s", provider, error.transient, error)
+        if failures:
+            raise providers_exhausted(failures, self.settings.provider_retry_after_seconds)
 
         name, arguments, reply = self._fixture_intent(request.message)
         if name:
@@ -284,6 +274,33 @@ class MCPConversationHost:
             tool_calls=tool_calls,
             data=data,
             mode="fixture_router",
+            correlation_id=correlation_id,
+        )
+
+    async def _bedrock_attempt(
+        self, request: ChatRequest, tools: list[Any], correlation_id: str
+    ) -> ChatResponse:
+        try:
+            reply, tool_calls, data = await self._bedrock_response(request, tools)
+        except (BotoCoreError, ClientError) as error:
+            raise classify_bedrock_error(error) from error
+        return ChatResponse(
+            reply=reply, tool_calls=tool_calls, data=data, mode="bedrock", correlation_id=correlation_id
+        )
+
+    async def _sarvam_attempt(
+        self, request: ChatRequest, tools: list[Any], correlation_id: str
+    ) -> ChatResponse:
+        try:
+            reply, tool_calls, data, usage = await self._sarvam_response(request, tools)
+        except SarvamAPIError as error:
+            raise classify_sarvam_error(error) from error
+        return ChatResponse(
+            reply=reply,
+            tool_calls=tool_calls,
+            data=data,
+            mode="sarvam",
+            model_usage=ModelUsage.model_validate(usage) if usage else None,
             correlation_id=correlation_id,
         )
 

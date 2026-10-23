@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from threading import Lock
 from collections.abc import Callable
@@ -9,11 +10,16 @@ from datetime import datetime, timezone
 from typing import Any, Protocol, TypedDict, cast
 from uuid import uuid4
 
+from botocore.exceptions import BotoCoreError, ClientError
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from market_partner.adapters.sarvam import SarvamChatClient
+from market_partner.adapters.bedrock_errors import classify_bedrock_error, classify_sarvam_error
+from market_partner.adapters.sarvam import SarvamAPIError, SarvamChatClient
+from market_partner.errors import ProviderError, providers_exhausted
 from market_partner.models import AgentAnalysis, EvidenceClaim, ModelUsage, ResearchRun, SourceRecord
+
+logger = logging.getLogger(__name__)
 
 _PROHIBITED_ADVICE = re.compile(
     r"\b(?:you should|i recommend|we recommend|recommendation to|strong buy|strong sell|"
@@ -403,6 +409,37 @@ class BedrockResearchModel:
         if not isinstance(value, dict):
             raise ValueError("The research model response has an invalid shape")
         return value
+
+
+class FallbackResearchModel:
+    """Try the primary model, then the backup, when a provider is throttled, slow, or returns bad JSON."""
+
+    def __init__(self, models: list[ResearchModel], *, default_retry_after: int) -> None:
+        self.models = models
+        self.default_retry_after = default_retry_after
+        self.usage_summary: dict[str, Any] | None = None
+
+    def analyze(self, role: str, question: str, sources: list[SourceRecord]) -> dict[str, Any]:
+        failures: list[ProviderError] = []
+        for model in self.models:
+            provider = "bedrock" if isinstance(model, BedrockResearchModel) else "sarvam"
+            try:
+                result = model.analyze(role, question, sources)
+            except ProviderError as error:
+                failure = error
+            except (BotoCoreError, ClientError) as error:
+                failure = classify_bedrock_error(error)
+            except SarvamAPIError as error:
+                failure = classify_sarvam_error(error)
+            except ValueError as error:
+                # Unreadable or mis-shaped model output counts as a provider failure so the backup can try.
+                failure = ProviderError(provider, str(error), transient=True)
+            else:
+                self.usage_summary = getattr(model, "usage_summary", None)
+                return result
+            logger.warning("research_provider_failed provider=%s reason=%s", provider, failure)
+            failures.append(failure)
+        raise providers_exhausted(failures, self.default_retry_after)
 
 
 class SarvamResearchModel:

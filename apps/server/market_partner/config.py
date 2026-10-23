@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     bedrock_model_id: str = ""
     bedrock_max_tokens: int = 1200
     bedrock_timeout_seconds: float = 25.0
+    provider_retry_after_seconds: int = 30
 
     sarvam_enabled: bool = False
     sarvam_api_key: SecretStr | None = None

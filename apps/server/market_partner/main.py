@@ -35,20 +35,23 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-Correlation-ID"],
-    expose_headers=["X-Correlation-ID"],
+    expose_headers=["X-Correlation-ID", "Retry-After"],
 )
 
 
 @app.exception_handler(DomainError)
 async def domain_error_handler(request: Request, error: DomainError) -> JSONResponse:
     correlation_id = getattr(request.state, "correlation_id", f"req_{uuid4().hex}")
+    retry_after = error.retry_after_seconds
     return JSONResponse(
         status_code=error.status_code,
+        headers={"Retry-After": str(retry_after)} if retry_after else None,
         content={
             "error": {
                 "code": error.code,
                 "safe_message": error.safe_message,
-                "retryable": False,
+                "retryable": retry_after is not None,
+                "retry_after_seconds": retry_after,
                 "correlation_id": correlation_id,
             }
         },

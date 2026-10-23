@@ -8,6 +8,20 @@ import httpx
 class SarvamAPIError(RuntimeError):
     """A safe, provider-facing error without request bodies or credentials."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        transient: bool = False,
+        retry_after_seconds: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.transient = transient or status_code in (408, 429, 500, 502, 503, 504)
+        self.throttled = status_code == 429
+        self.retry_after_seconds = retry_after_seconds
+
 
 class SarvamChatClient:
     """Small HTTPX client for Sarvam's stable V1 Chat Completions API."""
@@ -49,7 +63,12 @@ class SarvamChatClient:
     @staticmethod
     def _decode_response(response: httpx.Response) -> dict[str, Any]:
         if response.is_error:
-            raise SarvamAPIError(f"Sarvam chat request failed with HTTP {response.status_code}.")
+            retry_after = response.headers.get("retry-after", "")
+            raise SarvamAPIError(
+                f"Sarvam chat request failed with HTTP {response.status_code}.",
+                status_code=response.status_code,
+                retry_after_seconds=int(retry_after) if retry_after.isdigit() else None,
+            )
         try:
             payload = response.json()
         except ValueError as error:
@@ -83,9 +102,9 @@ class SarvamChatClient:
                     ),
                 )
         except httpx.TimeoutException as error:
-            raise SarvamAPIError("Sarvam did not respond before the request timed out.") from error
+            raise SarvamAPIError("Sarvam did not respond before the request timed out.", transient=True) from error
         except httpx.RequestError as error:
-            raise SarvamAPIError("Sarvam could not be reached. Check the network and try again.") from error
+            raise SarvamAPIError("Sarvam could not be reached. Check the network and try again.", transient=True) from error
         return self._decode_response(response)
 
     async def acomplete(
@@ -111,7 +130,7 @@ class SarvamChatClient:
                     ),
                 )
         except httpx.TimeoutException as error:
-            raise SarvamAPIError("Sarvam did not respond before the request timed out.") from error
+            raise SarvamAPIError("Sarvam did not respond before the request timed out.", transient=True) from error
         except httpx.RequestError as error:
-            raise SarvamAPIError("Sarvam could not be reached. Check the network and try again.") from error
+            raise SarvamAPIError("Sarvam could not be reached. Check the network and try again.", transient=True) from error
         return self._decode_response(response)

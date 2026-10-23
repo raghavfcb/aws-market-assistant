@@ -44,6 +44,8 @@ from market_partner.models import (
 from market_partner.repository import Repository
 from market_partner.workflows.research import (
     BedrockResearchModel,
+    FallbackResearchModel,
+    ResearchModel,
     ResearchValidationError,
     SarvamResearchModel,
     create_research_run,
@@ -297,22 +299,32 @@ class MarketPartnerApplication:
                 "No approved source packet is configured for that demo security yet.",
                 424,
             )
-        model = None
+        # Bedrock is primary; Sarvam is the backup when Bedrock is throttled, slow, or returns bad JSON.
+        models: list[ResearchModel] = []
+        if self.settings.providers_ready["bedrock"]:
+            models.append(
+                BedrockResearchModel(
+                    region=self.settings.aws_region,
+                    model_id=self.settings.bedrock_model_id,
+                    max_tokens=self.settings.bedrock_max_tokens,
+                    timeout_seconds=self.settings.bedrock_timeout_seconds,
+                )
+            )
         if self.settings.providers_ready["sarvam"] and self.settings.sarvam_api_key:
-            model = SarvamResearchModel(
-                api_key=self.settings.sarvam_api_key.get_secret_value(),
-                model_id=self.settings.sarvam_model_id,
-                base_url=self.settings.sarvam_base_url,
-                max_tokens=self.settings.sarvam_max_tokens,
-                timeout_seconds=self.settings.sarvam_timeout_seconds,
+            models.append(
+                SarvamResearchModel(
+                    api_key=self.settings.sarvam_api_key.get_secret_value(),
+                    model_id=self.settings.sarvam_model_id,
+                    base_url=self.settings.sarvam_base_url,
+                    max_tokens=self.settings.sarvam_max_tokens,
+                    timeout_seconds=self.settings.sarvam_timeout_seconds,
+                )
             )
-        elif self.settings.providers_ready["bedrock"]:
-            model = BedrockResearchModel(
-                region=self.settings.aws_region,
-                model_id=self.settings.bedrock_model_id,
-                max_tokens=self.settings.bedrock_max_tokens,
-                timeout_seconds=self.settings.bedrock_timeout_seconds,
-            )
+        model: ResearchModel | None = (
+            FallbackResearchModel(models, default_retry_after=self.settings.provider_retry_after_seconds)
+            if models
+            else None
+        )
         try:
             run = create_research_run(
                 owner_id=self.owner_id,
@@ -328,6 +340,8 @@ class MarketPartnerApplication:
                 "The research response failed the evidence and policy checks, so no report was saved.",
                 502,
             ) from error
+        except DomainError:
+            raise
         except Exception as error:
             raise DomainError(
                 "research_unavailable",
